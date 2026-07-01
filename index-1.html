@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>TERRA // 3D Earth Command Console</title>
+<meta name="description" content="Interactive 3D Earth — satellite imagery, live day/night terminator, political borders, country search and fly-to." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#03050b;
+    --panel:rgba(8,14,26,.68);
+    --panel-strong:rgba(7,12,22,.92);
+    --border:rgba(94,225,255,.16);
+    --border-strong:rgba(94,225,255,.32);
+    --accent:#5ee1ff;
+    --accent2:#ffb454;
+    --text:#e7f1fb;
+    --text-dim:#7c92ad;
+    --font-display:'Space Grotesk', sans-serif;
+    --font-body:'Inter', sans-serif;
+    --font-mono:'JetBrains Mono', ui-monospace, monospace;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ width:100%; height:100%; overflow:hidden; background:var(--bg); font-family:var(--font-body); }
+  #app{ position:fixed; inset:0; }
+  canvas{ display:block; touch-action:none; }
+  ::selection{ background:var(--accent); color:#001018; }
+  button{ font-family:inherit; }
+
+  /* ---------- HUD viewfinder frame (signature element) ---------- */
+  .corner{ position:fixed; width:26px; height:26px; z-index:15; pointer-events:none; opacity:.55; }
+  .corner::before, .corner::after{ content:""; position:absolute; background:var(--accent); }
+  .corner-tl{ top:14px; left:14px; }
+  .corner-tr{ top:14px; right:14px; transform:scaleX(-1); }
+  .corner-bl{ bottom:14px; left:14px; transform:scaleY(-1); }
+  .corner-br{ bottom:14px; right:14px; transform:scale(-1,-1); }
+  .corner::before{ width:100%; height:2px; top:0; left:0; }
+  .corner::after{ width:2px; height:100%; top:0; left:0; }
+
+  .scanlines{ position:fixed; inset:0; z-index:5; pointer-events:none;
+    background: radial-gradient(ellipse at 50% 45%, rgba(94,225,255,0.05), transparent 62%);
+    mix-blend-mode: screen; }
+
+  /* ---------- Top HUD ---------- */
+  #topbar{ position:fixed; top:16px; left:16px; right:16px; z-index:20; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; pointer-events:none; }
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:14px; backdrop-filter: blur(14px) saturate(140%); box-shadow:0 12px 30px rgba(0,0,0,.35); pointer-events:auto; }
+
+  #brand{ padding:12px 16px; min-width:220px; }
+  #brand h1{ font-family:var(--font-display); font-size:15px; font-weight:700; letter-spacing:.4px; color:#fff; display:flex; align-items:center; gap:8px; }
+  #brand h1 .dot{ width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 8px var(--accent); animation:pulse 2s ease-in-out infinite; }
+  @keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+  #brand .sub{ font-size:10.5px; color:var(--text-dim); margin-top:2px; letter-spacing:.3px; }
+  #brand .mode-row{ margin-top:10px; font-size:11px; font-family:var(--font-mono); color:var(--text-dim); display:flex; gap:14px; flex-wrap:wrap; }
+  #brand .mode-row span b{ color:var(--accent); font-weight:600; }
+  #brand .mode-row .lbl{ opacity:.6; }
+
+  /* ---------- Search ---------- */
+  #searchWrap{ position:relative; width:min(340px, 40vw); }
+  #searchBox{ padding:10px 12px; display:flex; align-items:center; gap:8px; }
+  #searchBox svg{ flex:none; opacity:.6; }
+  #searchInput{ flex:1; background:transparent; border:none; outline:none; color:var(--text); font-family:var(--font-mono); font-size:12.5px; letter-spacing:.2px; }
+  #searchInput::placeholder{ color:var(--text-dim); }
+  #searchKey{ font-family:var(--font-mono); font-size:10px; color:var(--text-dim); border:1px solid var(--border); border-radius:5px; padding:1px 5px; }
+  #searchResults{ position:absolute; top:calc(100% + 8px); left:0; right:0; max-height:280px; overflow-y:auto; border-radius:12px; display:none; }
+  #searchResults.open{ display:block; }
+  .result-item{ padding:9px 14px; font-size:12.5px; color:var(--text); cursor:pointer; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,.04); }
+  .result-item:last-child{ border-bottom:none; }
+  .result-item:hover, .result-item.active{ background:rgba(94,225,255,.12); }
+  .result-item small{ font-family:var(--font-mono); color:var(--text-dim); font-size:10.5px; }
+  #searchResults::-webkit-scrollbar{ width:6px; }
+  #searchResults::-webkit-scrollbar-thumb{ background:var(--border-strong); border-radius:4px; }
+
+  /* ---------- Country info panel ---------- */
+  #infoPanel{ position:fixed; top:16px; right:16px; z-index:22; width:270px; padding:16px; transform:translateX(340px); opacity:0; transition: transform .35s cubic-bezier(.2,.9,.25,1), opacity .3s ease; pointer-events:none; }
+  #infoPanel.open{ transform:translateX(0); opacity:1; pointer-events:auto; }
+  #infoPanel .eyebrow{ font-family:var(--font-mono); font-size:10px; color:var(--accent2); letter-spacing:1.5px; text-transform:uppercase; }
+  #infoPanel h2{ font-family:var(--font-display); font-size:19px; color:#fff; margin-top:4px; line-height:1.2; }
+  #infoPanel .iso{ font-family:var(--font-mono); font-size:11px; color:var(--text-dim); margin-top:6px; }
+  #infoPanel .coords{ font-family:var(--font-mono); font-size:11px; color:var(--text-dim); margin-top:4px; }
+  #infoPanel .closeBtn{ position:absolute; top:12px; right:12px; width:22px; height:22px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-dim); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  #infoPanel .closeBtn:hover{ color:#fff; border-color:var(--border-strong); }
+  #infoPanel .actionRow{ margin-top:14px; display:flex; gap:8px; }
+  #infoPanel .actionRow button{ flex:1; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:rgba(94,225,255,.08); color:var(--accent); font-size:11.5px; font-weight:600; cursor:pointer; letter-spacing:.2px; }
+  #infoPanel .actionRow button:hover{ background:rgba(94,225,255,.18); }
+
+  /* ---------- Tooltip ---------- */
+  #tooltip{ position:fixed; pointer-events:none; z-index:30; padding:6px 10px; border-radius:8px;
+    background:rgba(7,12,22,.9); color:#eaf4ff; font-size:12.5px; font-weight:600; letter-spacing:.2px;
+    border:1px solid var(--border-strong); box-shadow:0 6px 20px rgba(0,0,0,.45); backdrop-filter: blur(6px);
+    transform:translate(-50%, calc(-100% - 14px)); opacity:0; transition:opacity .12s ease; white-space:nowrap; }
+  #tooltip.visible{ opacity:1; }
+
+  /* ---------- Bottom dock ---------- */
+  #dock{ position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:20; display:flex; align-items:center; gap:6px; padding:8px; }
+  .dockBtn{ position:relative; width:40px; height:40px; border-radius:10px; border:1px solid transparent; background:transparent; color:var(--text-dim); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:.15s ease; }
+  .dockBtn:hover{ color:var(--text); background:rgba(255,255,255,.06); }
+  .dockBtn.active{ color:#001018; background:var(--accent); box-shadow:0 0 14px rgba(94,225,255,.4); }
+  .dockDivider{ width:1px; height:22px; background:var(--border); margin:0 4px; }
+  .dockBtn .tt{ position:absolute; bottom:calc(100% + 10px); left:50%; transform:translateX(-50%); background:var(--panel-strong); border:1px solid var(--border); padding:4px 8px; border-radius:6px; font-size:10.5px; color:var(--text); white-space:nowrap; opacity:0; pointer-events:none; transition:opacity .12s ease; font-family:var(--font-mono); }
+  .dockBtn:hover .tt{ opacity:1; }
+
+  /* ---------- Sun slider popover ---------- */
+  #sunPop{ position:fixed; left:50%; bottom:76px; transform:translateX(-50%) translateY(8px); z-index:19; padding:12px 16px; width:260px; opacity:0; pointer-events:none; transition:.18s ease; }
+  #sunPop.open{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0); }
+  #sunPop .row{ display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:10.5px; color:var(--text-dim); margin-bottom:8px; }
+  #sunPop .row b{ color:var(--accent2); }
+  #sunSlider{ width:100%; accent-color:var(--accent2); }
+  #sunPop .liveBtn{ margin-top:10px; width:100%; padding:7px; border-radius:8px; border:1px solid var(--border); background:rgba(255,180,84,.08); color:var(--accent2); font-size:11px; font-weight:600; cursor:pointer; }
+  #sunPop .liveBtn:hover{ background:rgba(255,180,84,.18); }
+
+  /* ---------- Cursor readout ---------- */
+  #readout{ position:fixed; left:16px; bottom:18px; z-index:18; padding:8px 12px; font-family:var(--font-mono); font-size:11px; color:var(--text-dim); display:flex; gap:14px; }
+  #readout b{ color:var(--accent); font-weight:600; }
+
+  /* ---------- Loader ---------- */
+  #loader{ position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:18px;
+    background: radial-gradient(circle at 50% 42%, #0a1730 0%, #03050b 68%); color:var(--text); transition:opacity .6s ease; }
+  #loader.hidden{ opacity:0; pointer-events:none; }
+  #loader .mark{ font-family:var(--font-display); font-weight:700; font-size:22px; letter-spacing:3px; color:#fff; display:flex; align-items:center; gap:10px; }
+  #loader .mark .dot{ width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px var(--accent); }
+  #loader .bar{ width:220px; height:3px; border-radius:3px; background:rgba(255,255,255,.08); overflow:hidden; }
+  #loader .bar i{ display:block; height:100%; width:0%; background:linear-gradient(90deg, var(--accent), var(--accent2)); transition:width .25s ease; }
+  #loader .msg{ font-size:12px; font-family:var(--font-mono); opacity:.75; letter-spacing:.3px; }
+
+  #hint{ position:fixed; bottom:18px; right:16px; z-index:18; padding:8px 12px; font-size:10.5px; font-family:var(--font-mono); color:var(--text-dim); }
+
+  @media (max-width: 720px){
+    #topbar{ flex-direction:column; align-items:stretch; }
+    #searchWrap{ width:100%; }
+    #brand{ min-width:0; }
+    #infoPanel{ left:16px; right:16px; width:auto; top:auto; bottom:80px; transform:translateY(140px); }
+    #infoPanel.open{ transform:translateY(0); }
+    #readout{ display:none; }
+    #hint{ display:none; }
+    .corner{ width:18px; height:18px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<div class="scanlines"></div>
+<div class="corner corner-tl"></div>
+<div class="corner corner-tr"></div>
+<div class="corner corner-bl"></div>
+<div class="corner corner-br"></div>
+
+<div id="topbar">
+  <div id="brand" class="panel">
+    <h1><span class="dot"></span>TERRA — Earth Console</h1>
+    <div class="sub">Drag to rotate · Scroll / pinch to zoom · Zoom in for borders</div>
+    <div class="mode-row">
+      <span><span class="lbl">VIEW</span> <b id="modeLabel">SATELLITE</b></span>
+      <span><span class="lbl">RANGE</span> <b id="rangeLabel">—</b></span>
+      <span><span class="lbl">COUNTRIES</span> <b id="countLabel">—</b></span>
+    </div>
+  </div>
+
+  <div id="searchWrap">
+    <div id="searchBox" class="panel">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="searchInput" type="text" placeholder="Search a country…" autocomplete="off" spellcheck="false" />
+      <span id="searchKey">/</span>
+    </div>
+    <div id="searchResults" class="panel"></div>
+  </div>
+</div>
+
+<div id="infoPanel" class="panel">
+  <button class="closeBtn" id="infoClose">✕</button>
+  <div class="eyebrow">Selected territory</div>
+  <h2 id="infoName">—</h2>
+  <div class="iso" id="infoIso">ISO —</div>
+  <div class="coords" id="infoCoords">— , —</div>
+  <div class="actionRow">
+    <button id="infoFly">Fly here</button>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<div id="sunPop" class="panel">
+  <div class="row"><span>Sun position</span><b id="sunTimeLabel">12:00 UTC</b></div>
+  <input id="sunSlider" type="range" min="0" max="1439" value="720" step="1" />
+  <button class="liveBtn" id="sunLive">Sync to current time</button>
+</div>
+
+<div id="dock" class="panel">
+  <button class="dockBtn active" id="btnRotate" title="Auto-rotate">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+    <span class="tt">Auto-rotate</span>
+  </button>
+  <button class="dockBtn active" id="btnSun" title="Sun / day-night">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    <span class="tt">Sun position</span>
+  </button>
+  <div class="dockDivider"></div>
+  <button class="dockBtn" id="btnReset" title="Reset view">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+    <span class="tt">Reset view</span>
+  </button>
+  <button class="dockBtn" id="btnFullscreen" title="Fullscreen">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+    <span class="tt">Fullscreen</span>
+  </button>
+</div>
+
+<div id="readout" class="panel">
+  <span>CURSOR <b id="cursorLL">—</b></span>
+  <span>CAM <b id="camDist">—</b></span>
+</div>
+
+<div id="hint" class="panel">Esc deselect · R reset · / search</div>
+
+<div id="loader">
+  <div class="mark"><span class="dot"></span>TERRA</div>
+  <div class="bar"><i id="loadBar"></i></div>
+  <div class="msg" id="loaderMsg">Initializing…</div>
+</div>
+
+<!-- Three.js + OrbitControls via import map (ES modules from CDN) -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ---------------------------------------------------------------
+   Config
+----------------------------------------------------------------*/
+const EARTH_RADIUS   = 2;
+const GEO_RADIUS      = EARTH_RADIUS + 0.006;
+const MIN_DISTANCE    = EARTH_RADIUS + 0.6;
+const MAX_DISTANCE    = 12;
+const DEFAULT_DISTANCE = 6;
+
+const POLITICAL_FULL = 3.6;
+const SATELLITE_FULL = 5.2;
+const FLY_DISTANCE   = 2.9; // camera distance used when flying to a selected/searched country
+
+const TEX = {
+  map:     'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/planets/earth_atmos_2048.jpg',
+  bump:    'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/planets/earth_normal_2048.jpg',
+  spec:    'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/planets/earth_specular_2048.jpg',
+  clouds:  'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/planets/earth_clouds_1024.png',
+  lights:  'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/planets/earth_lights_2048.png'
+};
+const GEOJSON_URL      = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
+const GEOJSON_FALLBACK = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson';
+
+const LABEL_FADE_START = SATELLITE_FULL;
+const LABEL_FADE_FULL  = POLITICAL_FULL;
+
+/* ---------------------------------------------------------------
+   DOM refs
+----------------------------------------------------------------*/
+const app          = document.getElementById('app');
+const tooltip       = document.getElementById('tooltip');
+const modeLabel      = document.getElementById('modeLabel');
+const rangeLabel      = document.getElementById('rangeLabel');
+const countLabel       = document.getElementById('countLabel');
+const loader          = document.getElementById('loader');
+const loaderMsg        = document.getElementById('loaderMsg');
+const loadBar          = document.getElementById('loadBar');
+const searchInput      = document.getElementById('searchInput');
+const searchResults    = document.getElementById('searchResults');
+const infoPanel        = document.getElementById('infoPanel');
+const infoName         = document.getElementById('infoName');
+const infoIso          = document.getElementById('infoIso');
+const infoCoords       = document.getElementById('infoCoords');
+const infoClose        = document.getElementById('infoClose');
+const infoFly          = document.getElementById('infoFly');
+const btnRotate        = document.getElementById('btnRotate');
+const btnSun           = document.getElementById('btnSun');
+const btnReset         = document.getElementById('btnReset');
+const btnFullscreen    = document.getElementById('btnFullscreen');
+const sunPop           = document.getElementById('sunPop');
+const sunSlider        = document.getElementById('sunSlider');
+const sunTimeLabel     = document.getElementById('sunTimeLabel');
+const sunLive          = document.getElementById('sunLive');
+const cursorLL         = document.getElementById('cursorLL');
+const camDistEl        = document.getElementById('camDist');
+
+/* ---------------------------------------------------------------
+   Scene setup
+----------------------------------------------------------------*/
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
+camera.position.set(0, 1.5, DEFAULT_DISTANCE);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+app.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.rotateSpeed = 0.5;
+controls.minDistance = MIN_DISTANCE;
+controls.maxDistance = MAX_DISTANCE;
+controls.enablePan = false;
+
+/* ---------------------------------------------------------------
+   Lighting — the directional "sun" also drives the day/night shader
+----------------------------------------------------------------*/
+scene.add(new THREE.AmbientLight(0x223355, 0.55));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+scene.add(sun);
+const rim = new THREE.DirectionalLight(0x4477ff, 0.4);
+rim.position.set(-5, -2, -4);
+scene.add(rim);
+
+const SUN_DIST = 8;
+function setSunFromMinutes(min){
+  // min: 0-1439 (minutes of UTC day). 0/1440 -> midnight, 720 -> noon.
+  const angle = (min / 1440) * Math.PI * 2;
+  sun.position.set(Math.cos(angle) * SUN_DIST, Math.sin(angle * 0.0 + 0.35) * 2.2, Math.sin(angle) * SUN_DIST);
+  const uv = sun.position.clone().normalize();
+  if (earthMat.uniforms) earthMat.uniforms.sunDirection.value.copy(uv);
+  const h = Math.floor(min/60).toString().padStart(2,'0');
+  const m = Math.floor(min%60).toString().padStart(2,'0');
+  sunTimeLabel.textContent = `${h}:${m} UTC`;
+}
+
+/* ---------------------------------------------------------------
+   Starfield
+----------------------------------------------------------------*/
+function createStarfield(count = 8000, radius = 400) {
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const color = new THREE.Color();
+  for (let i = 0; i < count; i++) {
+    const u = Math.random(); const v = Math.random();
+    const theta = 2 * Math.PI * u;
+    const phi = Math.acos(2 * v - 1);
+    const r = radius * (0.6 + Math.random() * 0.4);
+    positions[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i*3+2] = r * Math.cos(phi);
+    const tint = Math.random();
+    if (tint > 0.92) color.setHSL(0.6, 0.55, 0.85);
+    else if (tint > 0.84) color.setHSL(0.09, 0.5, 0.82);
+    else color.setHSL(0, 0, 0.7 + Math.random() * 0.3);
+    colors[i*3]=color.r; colors[i*3+1]=color.g; colors[i*3+2]=color.b;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({ size: 1.1, sizeAttenuation: true, vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false });
+  return new THREE.Points(geo, mat);
+}
+scene.add(createStarfield());
+
+/* ---------------------------------------------------------------
+   Texture loading (with progress + graceful fallback)
+----------------------------------------------------------------*/
+const texLoader = new THREE.TextureLoader();
+texLoader.crossOrigin = 'anonymous';
+let assetsTotal = 0, assetsDone = 0;
+function bumpProgress(label){
+  assetsDone++;
+  const pct = Math.round((assetsDone/assetsTotal)*100);
+  loadBar.style.width = pct + '%';
+  if (label) loaderMsg.textContent = label;
+}
+function loadTexture(url, label) {
+  return new Promise((resolve) => {
+    texLoader.load(url,
+      (t) => { t.colorSpace = THREE.SRGBColorSpace; bumpProgress(label); resolve(t); },
+      undefined,
+      () => { bumpProgress(label); resolve(null); }
+    );
+  });
+}
+function proceduralEarth() {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0,0,0,512);
+  g.addColorStop(0,'#0b3d91'); g.addColorStop(0.5,'#1565c0'); g.addColorStop(1,'#0b3d91');
+  ctx.fillStyle = g; ctx.fillRect(0,0,1024,512);
+  ctx.fillStyle = '#2e7d32';
+  for (let i=0;i<60;i++){ ctx.beginPath(); ctx.ellipse(Math.random()*1024, Math.random()*512, Math.random()*80+20, Math.random()*50+15, 0, 0, Math.PI*2); ctx.fill(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function blackTexture(){
+  const c = document.createElement('canvas'); c.width = 4; c.height = 4;
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0,0,4,4);
+  return new THREE.CanvasTexture(c);
+}
+
+/* ---------------------------------------------------------------
+   Earth — realistic day/night shader
+----------------------------------------------------------------*/
+const earthGroup = new THREE.Group();
+scene.add(earthGroup);
+
+const earthGeo = new THREE.SphereGeometry(EARTH_RADIUS, 96, 96);
+const earthMat = new THREE.ShaderMaterial({
+  uniforms: {
+    dayTexture:   { value: null },
+    nightTexture: { value: null },
+    specTexture:  { value: null },
+    sunDirection: { value: new THREE.Vector3(1,0,0) },
+    nightOn:      { value: 1.0 }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    varying vec3 vWorldNormal;
+    void main(){
+      vUv = uv;
+      vWorldNormal = normalize(mat3(modelMatrix) * normal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec2 vUv;
+    varying vec3 vWorldNormal;
+    uniform sampler2D dayTexture;
+    uniform sampler2D nightTexture;
+    uniform sampler2D specTexture;
+    uniform vec3 sunDirection;
+    uniform float nightOn;
+    void main(){
+      vec3 dayColor = texture2D(dayTexture, vUv).rgb;
+      vec3 nightColor = texture2D(nightTexture, vUv).rgb * nightOn;
+      float specMask = texture2D(specTexture, vUv).r;
+
+      float cosAngle = dot(normalize(vWorldNormal), normalize(sunDirection));
+      float dayMix = smoothstep(-0.12, 0.12, cosAngle);
+      float diffuse = clamp(cosAngle, 0.0, 1.0);
+
+      vec3 dayLit = dayColor * (0.45 + 0.65 * diffuse);
+      dayLit += specMask * pow(diffuse, 6.0) * 0.35;
+
+      vec3 nightLit = nightColor * 1.6;
+
+      // soft amber glow along the terminator line
+      float term = 1.0 - smoothstep(0.0, 0.16, abs(cosAngle));
+      vec3 termGlow = vec3(1.0, 0.55, 0.25) * term * 0.18;
+
+      vec3 color = mix(nightLit, dayLit, dayMix) + termGlow * (1.0 - dayMix) * dayMix * 4.0;
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `
+});
+const earth = new THREE.Mesh(earthGeo, earthMat);
+earthGroup.add(earth);
+
+const cloudMat = new THREE.MeshPhongMaterial({ transparent: true, opacity: 0.35, depthWrite: false });
+const clouds = new THREE.Mesh(new THREE.SphereGeometry(EARTH_RADIUS + 0.02, 96, 96), cloudMat);
+earthGroup.add(clouds);
+
+const atmosphere = new THREE.Mesh(
+  new THREE.SphereGeometry(EARTH_RADIUS + 0.18, 96, 96),
+  new THREE.ShaderMaterial({
+    transparent: true, side: THREE.BackSide, blending: THREE.AdditiveBlending,
+    uniforms: { glowColor: { value: new THREE.Color(0x3a86ff) } },
+    vertexShader: `varying vec3 vNormal; void main(){ vNormal = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `varying vec3 vNormal; uniform vec3 glowColor; void main(){ float intensity = pow(0.62 - dot(vNormal, vec3(0.0,0.0,1.0)), 3.0); gl_FragColor = vec4(glowColor, 1.0) * intensity; }`
+  })
+);
+earthGroup.add(atmosphere);
+
+/* ---------------------------------------------------------------
+   Country borders / fills / labels
+----------------------------------------------------------------*/
+const bordersGroup = new THREE.Group(); bordersGroup.visible = false; earthGroup.add(bordersGroup);
+const fillGroup = new THREE.Group(); earthGroup.add(fillGroup);
+
+const lineBaseColor = new THREE.Color(0x8fd0ff);
+const lineMat = new THREE.LineBasicMaterial({ color: lineBaseColor, transparent: true, opacity: 0 });
+const highlightMat = new THREE.MeshBasicMaterial({ color: 0x7fb4ff, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false });
+const selectMat = new THREE.MeshBasicMaterial({ color: 0xffb454, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false });
+
+const labelsGroup = new THREE.Group(); labelsGroup.visible = false; earthGroup.add(labelsGroup);
+const labelTextureCache = new Map();
+function makeLabelTexture(text) {
+  if (labelTextureCache.has(text)) return labelTextureCache.get(text);
+  const pad = 12;
+  const font = '600 30px "Space Grotesk", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+  const measure = document.createElement('canvas').getContext('2d');
+  measure.font = font;
+  const w = Math.ceil(measure.measureText(text).width) + pad*2;
+  const h = 30 + pad*2;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.font = font; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(3,5,11,0.92)';
+  ctx.strokeText(text, w/2, h/2);
+  ctx.fillStyle = '#eaf4ff';
+  ctx.fillText(text, w/2, h/2);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter;
+  const entry = { tex, aspect: w/h };
+  labelTextureCache.set(text, entry);
+  return entry;
+}
+function ringCentroid(ring) {
+  let area = 0, cx = 0, cy = 0;
+  for (let i=0, n=ring.length-1; i<n; i++){
+    const [x0,y0] = ring[i]; const [x1,y1] = ring[i+1];
+    const cross = x0*y1 - x1*y0;
+    area += cross; cx += (x0+x1)*cross; cy += (y0+y1)*cross;
+  }
+  if (Math.abs(area) < 1e-7) {
+    let sx=0, sy=0; ring.forEach(([x,y]) => { sx+=x; sy+=y; });
+    return [sx/ring.length, sy/ring.length];
+  }
+  area *= 0.5;
+  return [cx/(6*area), cy/(6*area)];
+}
+function addCountryLabel(name, ring) {
+  if (!ring || ring.length < 3) return;
+  const [lon, lat] = ringCentroid(ring);
+  const { tex, aspect } = makeLabelTexture(name);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthTest: false, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
+  const baseHeight = 0.07;
+  sprite.scale.set(baseHeight*aspect, baseHeight, 1);
+  const pos = lonLatToVec3(lon, lat, GEO_RADIUS + 0.02);
+  sprite.position.copy(pos);
+  sprite.userData.normal = pos.clone().normalize();
+  labelsGroup.add(sprite);
+}
+
+/* ---------------------------------------------------------------
+   Geo helpers
+----------------------------------------------------------------*/
+function lonLatToVec3(lon, lat, radius) {
+  const phi = (90 - lat) * Math.PI / 180;
+  const theta = (lon + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -radius * Math.sin(phi) * Math.cos(theta),
+     radius * Math.cos(phi),
+     radius * Math.sin(phi) * Math.sin(theta)
+  );
+}
+function vec3ToLonLat(v) {
+  const r = v.length();
+  const lat = 90 - Math.acos(v.y / r) * 180 / Math.PI;
+  let theta = Math.atan2(v.z, -v.x);
+  let lon = theta * 180 / Math.PI - 180;
+  lon = ((lon + 540) % 360) - 180;
+  return [lon, lat];
+}
+function ringToLine(ring, radius) {
+  const pts = ring.map(([lon,lat]) => lonLatToVec3(lon, lat, radius));
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  return new THREE.Line(geo, lineMat);
+}
+function ringToFillMesh(ring, radius) {
+  const shapePts = ring.map(([lon,lat]) => new THREE.Vector2(lon, lat));
+  if (shapePts.length < 3) return null;
+  const shape = new THREE.Shape(shapePts);
+  const geo = new THREE.ShapeGeometry(shape, 6);
+  const pos = geo.attributes.position;
+  for (let i=0;i<pos.count;i++){
+    const lon = pos.getX(i), lat = pos.getY(i);
+    const v = lonLatToVec3(lon, lat, radius);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, highlightMat.clone());
+}
+function eachPolygon(geometry, cb) {
+  if (!geometry) return;
+  if (geometry.type === 'Polygon') cb(geometry.coordinates);
+  else if (geometry.type === 'MultiPolygon') geometry.coordinates.forEach(cb);
+}
+
+const countryIndex = []; // { name, lon, lat, iso, group }
+
+function buildCountries(features) {
+  features.forEach((feature) => {
+    const props = feature.properties || {};
+    const name = props.name || props.NAME || props.ADMIN || props.admin || 'Unknown';
+    const iso = props.iso_a3 || props.ISO_A3 || props.iso_a2 || props.ISO_A2 || null;
+
+    const countryLines = new THREE.Group();
+    countryLines.userData.name = name;
+    const countryFills = [];
+    let largestRing = null, largestArea = -Infinity;
+
+    eachPolygon(feature.geometry, (polygon) => {
+      polygon.forEach((ring) => countryLines.add(ringToLine(ring, GEO_RADIUS)));
+      const fill = ringToFillMesh(polygon[0], GEO_RADIUS);
+      if (fill) {
+        fill.userData.name = name;
+        fill.userData.linesGroup = countryLines;
+        fillGroup.add(fill);
+        countryFills.push(fill);
+      }
+      const ring = polygon[0];
+      let a = 0;
+      for (let i=0, n=ring.length-1; i<n; i++) a += ring[i][0]*ring[i+1][1] - ring[i+1][0]*ring[i][1];
+      a = Math.abs(a);
+      if (a > largestArea) { largestArea = a; largestRing = ring; }
+    });
+
+    if (largestRing) {
+      addCountryLabel(name, largestRing);
+      const [lon, lat] = ringCentroid(largestRing);
+      countryIndex.push({ name, lon, lat, iso, group: countryLines });
+    }
+    countryLines.userData.fills = countryFills;
+    bordersGroup.add(countryLines);
+  });
+  countryIndex.sort((a,b) => a.name.localeCompare(b.name));
+  countLabel.textContent = countryIndex.length;
+}
+
+/* ---------------------------------------------------------------
+   TopoJSON -> GeoJSON (minimal inline decoder for world-atlas)
+----------------------------------------------------------------*/
+function topoToGeo(topology, objectName) {
+  const obj = topology.objects[objectName];
+  const arcs = topology.arcs;
+  const transform = topology.transform;
+  function decodeArc(arc) {
+    const points = []; let x=0, y=0;
+    for (let i=0;i<arc.length;i++){
+      let [dx,dy] = arc[i];
+      if (transform) {
+        x+=dx; y+=dy;
+        points.push([ x*transform.scale[0]+transform.translate[0], y*transform.scale[1]+transform.translate[1] ]);
+      } else points.push([dx,dy]);
+    }
+    return points;
+  }
+  const arcCache = arcs.map(decodeArc);
+  function arcRing(arcIndexes) {
+    let coords = [];
+    arcIndexes.forEach((idx) => {
+      let reverse = idx < 0;
+      let arc = arcCache[reverse ? ~idx : idx];
+      let pts = reverse ? arc.slice().reverse() : arc;
+      if (coords.length) pts = pts.slice(1);
+      coords = coords.concat(pts);
+    });
+    return coords;
+  }
+  function geomToFeature(geom) {
+    let coordinates;
+    if (geom.type === 'Polygon') coordinates = geom.arcs.map(arcRing);
+    else if (geom.type === 'MultiPolygon') coordinates = geom.arcs.map((poly) => poly.map(arcRing));
+    else coordinates = [];
+    return { type:'Feature', properties: geom.properties || { name: geom.id }, geometry: { type: geom.type, coordinates } };
+  }
+  return obj.geometries.map(geomToFeature);
+}
+
+async function loadCountries() {
+  try {
+    const res = await fetch(GEOJSON_URL);
+    if (!res.ok) throw new Error('topo fetch failed');
+    const topo = await res.json();
+    const objName = topo.objects.countries ? 'countries' : Object.keys(topo.objects)[0];
+    bumpProgress('Parsing country boundaries…');
+    return topoToGeo(topo, objName);
+  } catch (e) {
+    const res = await fetch(GEOJSON_FALLBACK);
+    const geo = await res.json();
+    bumpProgress('Parsing country boundaries…');
+    return geo.features;
+  }
+}
+
+/* ---------------------------------------------------------------
+   Raycasting / hover / click-select
+----------------------------------------------------------------*/
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let pointerInside = false;
+let hovered = null;
+let selected = null;
+let downPos = null;
+
+function setPointer(clientX, clientY) {
+  pointer.x = (clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -(clientY / window.innerHeight) * 2 + 1;
+  tooltip.style.left = clientX + 'px';
+  tooltip.style.top = clientY + 'px';
+}
+renderer.domElement.addEventListener('pointermove', (e) => { pointerInside = true; setPointer(e.clientX, e.clientY); });
+renderer.domElement.addEventListener('pointerleave', () => { pointerInside = false; clearHover(); });
+renderer.domElement.addEventListener('pointerdown', (e) => { downPos = { x: e.clientX, y: e.clientY }; });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (!downPos) return;
+  const moved = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+  downPos = null;
+  if (moved > 5) return; // was a drag, not a click
+  if (!fillGroup.visible) return;
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(fillGroup.children, false);
+  if (hits.length) selectCountry(hits[0].object.userData.linesGroup);
+});
+
+function clearHover() {
+  if (hovered && hovered !== (selected && selected.group)) {
+    hovered.userData.fills.forEach((f) => { if (f.material !== selectMat) f.material.opacity = 0; });
+    hovered.children.forEach((l) => { l.material = lineMat; });
+  }
+  hovered = null;
+  tooltip.classList.remove('visible');
+}
+const hoverLineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1 });
+const selectLineMat = new THREE.LineBasicMaterial({ color: 0xffb454, transparent: true, opacity: 1 });
+
+function handleHover() {
+  if (!fillGroup.visible || !pointerInside) { clearHover(); return; }
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(fillGroup.children, false);
+  if (hits.length) {
+    const fill = hits[0].object;
+    const group = fill.userData.linesGroup;
+    if (group !== hovered) {
+      clearHover();
+      hovered = group;
+      if (!selected || selected.group !== group) {
+        group.userData.fills.forEach((f) => { f.material.opacity = 0.24; });
+        group.children.forEach((l) => { l.material = hoverLineMat; });
+      }
+    }
+    tooltip.textContent = fill.userData.name;
+    tooltip.classList.add('visible');
+  } else clearHover();
+}
+
+function selectCountry(group) {
+  if (selected) {
+    selected.group.userData.fills.forEach((f) => { f.material.opacity = 0; });
+    selected.group.children.forEach((l) => { l.material = lineMat; });
+  }
+  const entry = countryIndex.find((c) => c.group === group);
+  selected = { group, entry };
+  group.userData.fills.forEach((f) => { f.material.opacity = 0.3; });
+  group.children.forEach((l) => { l.material = selectLineMat; });
+  openInfoPanel(entry);
+}
+function deselectCountry() {
+  if (!selected) return;
+  selected.group.userData.fills.forEach((f) => { f.material.opacity = 0; });
+  selected.group.children.forEach((l) => { l.material = lineMat; });
+  selected = null;
+  infoPanel.classList.remove('open');
+}
+
+/* ---------------------------------------------------------------
+   Info panel
+----------------------------------------------------------------*/
+function openInfoPanel(entry) {
+  if (!entry) return;
+  infoName.textContent = entry.name;
+  infoIso.textContent = 'ISO ' + (entry.iso || '—');
+  infoCoords.textContent = `${entry.lat.toFixed(2)}°, ${entry.lon.toFixed(2)}°`;
+  infoPanel.classList.add('open');
+}
+infoClose.addEventListener('click', deselectCountry);
+infoFly.addEventListener('click', () => { if (selected && selected.entry) flyTo(selected.entry.lon, selected.entry.lat); });
+
+/* ---------------------------------------------------------------
+   Search
+----------------------------------------------------------------*/
+let activeResultIndex = -1;
+function renderResults(list) {
+  searchResults.innerHTML = '';
+  activeResultIndex = -1;
+  if (!list.length) { searchResults.classList.remove('open'); return; }
+  list.slice(0, 8).forEach((c) => {
+    const el = document.createElement('div');
+    el.className = 'result-item';
+    el.innerHTML = `<span>${c.name}</span><small>${c.iso || ''}</small>`;
+    el.addEventListener('click', () => {
+      selectCountry(c.group);
+      flyTo(c.lon, c.lat);
+      searchResults.classList.remove('open');
+      searchInput.value = c.name;
+    });
+    searchResults.appendChild(el);
+  });
+  searchResults.classList.add('open');
+}
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.trim().toLowerCase();
+  if (!q) { searchResults.classList.remove('open'); return; }
+  renderResults(countryIndex.filter((c) => c.name.toLowerCase().includes(q)));
+});
+searchInput.addEventListener('keydown', (e) => {
+  const items = Array.from(searchResults.children);
+  if (e.key === 'ArrowDown') { e.preventDefault(); activeResultIndex = Math.min(items.length-1, activeResultIndex+1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); activeResultIndex = Math.max(0, activeResultIndex-1); }
+  else if (e.key === 'Enter') { if (items[activeResultIndex]) items[activeResultIndex].click(); return; }
+  else if (e.key === 'Escape') { searchResults.classList.remove('open'); searchInput.blur(); return; }
+  else return;
+  items.forEach((it,i) => it.classList.toggle('active', i === activeResultIndex));
+  if (items[activeResultIndex]) items[activeResultIndex].scrollIntoView({ block: 'nearest' });
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#searchWrap')) searchResults.classList.remove('open');
+});
+
+/* ---------------------------------------------------------------
+   Camera fly-to (eased, arc-lerp)
+----------------------------------------------------------------*/
+let isFlying = false;
+function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+function flyTo(lon, lat, distance = FLY_DISTANCE) {
+  const dirLocal = lonLatToVec3(lon, lat, 1);
+  const dirWorld = dirLocal.clone().applyQuaternion(earthGroup.quaternion).normalize();
+  const startPos = camera.position.clone();
+  const startDist = startPos.length() || DEFAULT_DISTANCE;
+  const startDir = startPos.clone().normalize();
+  const duration = 1100;
+  const t0 = performance.now();
+  isFlying = true;
+  function step(now) {
+    const t = Math.min(1, (now - t0) / duration);
+    const e = easeInOutCubic(t);
+    const curDir = startDir.clone().lerp(dirWorld, e).normalize();
+    const curDist = THREE.MathUtils.lerp(startDist, distance, e);
+    camera.position.copy(curDir.multiplyScalar(curDist));
+    controls.target.set(0,0,0);
+    controls.update();
+    if (t < 1) requestAnimationFrame(step);
+    else isFlying = false;
+  }
+  requestAnimationFrame(step);
+}
+
+/* ---------------------------------------------------------------
+   Zoom-dependent transition
+----------------------------------------------------------------*/
+let politicalActive = false;
+function updateViewBlend() {
+  const dist = camera.position.distanceTo(controls.target);
+  let t = (SATELLITE_FULL - dist) / (SATELLITE_FULL - POLITICAL_FULL);
+  t = Math.max(0, Math.min(1, t));
+
+  bordersGroup.visible = t > 0.001;
+  fillGroup.visible = t > 0.001;
+  politicalActive = t > 0.5;
+
+  lineMat.opacity = t * 0.9;
+  hoverLineMat.opacity = Math.max(0.4, t);
+  selectLineMat.opacity = Math.max(0.5, t);
+
+  labelsGroup.visible = t > 0.001;
+  if (labelsGroup.visible) {
+    const camDir = camera.position.clone().sub(controls.target).normalize();
+    labelsGroup.children.forEach((sprite) => {
+      const n = sprite.userData.normal.clone().applyQuaternion(earthGroup.quaternion);
+      const facing = n.dot(camDir);
+      const faceFade = THREE.MathUtils.clamp((facing - 0.15) / 0.35, 0, 1);
+      sprite.material.opacity = t * faceFade;
+    });
+  }
+
+  cloudMat.opacity = 0.35 * (1 - t * 0.5);
+  modeLabel.textContent = t >= 0.5 ? 'POLITICAL' : (t > 0.02 ? 'TRANSIT' : 'SATELLITE');
+  rangeLabel.textContent = dist.toFixed(2) + ' u';
+  camDistEl.textContent = dist.toFixed(2);
+}
+
+/* ---------------------------------------------------------------
+   Cursor lon/lat readout
+----------------------------------------------------------------*/
+function updateCursorReadout() {
+  if (!pointerInside) { cursorLL.textContent = '—'; return; }
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObject(earth, false);
+  if (hits.length) {
+    const local = hits[0].point.clone().applyQuaternion(earthGroup.quaternion.clone().invert());
+    const [lon, lat] = vec3ToLonLat(local);
+    const ns = lat >= 0 ? 'N' : 'S';
+    const ew = lon >= 0 ? 'E' : 'W';
+    cursorLL.textContent = `${Math.abs(lat).toFixed(1)}°${ns}, ${Math.abs(lon).toFixed(1)}°${ew}`;
+  } else cursorLL.textContent = '—';
+}
+
+/* ---------------------------------------------------------------
+   Dock controls
+----------------------------------------------------------------*/
+let autoRotate = true;
+btnRotate.addEventListener('click', () => {
+  autoRotate = !autoRotate;
+  btnRotate.classList.toggle('active', autoRotate);
+});
+let nightOn = true;
+btnSun.addEventListener('click', () => { sunPop.classList.toggle('open'); });
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#sunPop') && !e.target.closest('#btnSun')) sunPop.classList.remove('open');
+});
+sunSlider.addEventListener('input', () => setSunFromMinutes(parseInt(sunSlider.value,10)));
+sunLive.addEventListener('click', () => {
+  const now = new Date();
+  const min = now.getUTCHours()*60 + now.getUTCMinutes();
+  sunSlider.value = min;
+  setSunFromMinutes(min);
+});
+
+btnReset.addEventListener('click', resetView);
+function resetView() {
+  deselectCountry();
+  isFlying = true;
+  const start = camera.position.clone();
+  const end = new THREE.Vector3(0, 1.5, DEFAULT_DISTANCE);
+  const t0 = performance.now(); const duration = 900;
+  function step(now){
+    const t = Math.min(1, (now-t0)/duration);
+    const e = easeInOutCubic(t);
+    camera.position.lerpVectors(start, end, e);
+    controls.target.lerp(new THREE.Vector3(0,0,0), e);
+    controls.update();
+    if (t<1) requestAnimationFrame(step); else isFlying = false;
+  }
+  requestAnimationFrame(step);
+  autoRotate = true; btnRotate.classList.add('active');
+}
+
+btnFullscreen.addEventListener('click', () => {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+  else document.exitFullscreen();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.target === searchInput) return;
+  if (e.key === '/') { e.preventDefault(); searchInput.focus(); }
+  else if (e.key === 'Escape') { deselectCountry(); searchInput.blur(); }
+  else if (e.key.toLowerCase() === 'r') { resetView(); }
+});
+
+/* ---------------------------------------------------------------
+   Resize
+----------------------------------------------------------------*/
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+}
+window.addEventListener('resize', onResize);
+
+/* ---------------------------------------------------------------
+   Animation loop
+----------------------------------------------------------------*/
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  if (autoRotate && !politicalActive && !isFlying) earthGroup.rotation.y += dt * 0.04;
+  clouds.rotation.y += dt * 0.01;
+  controls.update();
+  updateViewBlend();
+  handleHover();
+  updateCursorReadout();
+  renderer.render(scene, camera);
+}
+
+/* ---------------------------------------------------------------
+   Init
+----------------------------------------------------------------*/
+async function init() {
+  assetsTotal = 6; assetsDone = 0;
+  loaderMsg.textContent = 'Loading satellite imagery…';
+
+  const [map, bump, spec, cloudTex, lightsTex] = await Promise.all([
+    loadTexture(TEX.map, 'Loading day imagery…'),
+    loadTexture(TEX.bump, 'Loading terrain relief…'),
+    loadTexture(TEX.spec, 'Loading ocean mask…'),
+    loadTexture(TEX.clouds, 'Loading cloud layer…'),
+    loadTexture(TEX.lights, 'Loading night lights…')
+  ]);
+
+  earthMat.uniforms.dayTexture.value = map || proceduralEarth();
+  earthMat.uniforms.nightTexture.value = lightsTex || blackTexture();
+  earthMat.uniforms.specTexture.value = spec || blackTexture();
+  if (cloudTex) { cloudMat.map = cloudTex; cloudMat.needsUpdate = true; }
+
+  scene.background = new THREE.Color(0x000000);
+
+  const now = new Date();
+  setSunFromMinutes(now.getUTCHours()*60 + now.getUTCMinutes());
+
+  loaderMsg.textContent = 'Loading country boundaries…';
+  try {
+    const features = await loadCountries();
+    buildCountries(features);
+  } catch (e) {
+    console.error('Failed to load GeoJSON', e);
+    bumpProgress('Boundary data unavailable');
+  }
+
+  loader.classList.add('hidden');
+  setTimeout(() => loader.remove(), 700);
+  animate();
+}
+init();
+</script>
+</body>
+</html>
